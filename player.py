@@ -138,9 +138,6 @@ class ComputerPlayer:
             # print(f"board evaluated terminal: {rack}")
             self.terminal_racks[tuple(map(tuple, rack))] = total
 
-        # with self.total_evals_lock:
-        #     self.total_evals.value += 1
-
         return total
 
 
@@ -174,8 +171,11 @@ class ComputerPlayer:
         return children
 
 
-    def minimax(self, rack, player_id, depth):
+    def minimax(self, rack, player_id, depth, alpha, beta):
         """ returns the evaluation of the rack """
+
+        # TODO: move order beforehand, both for increased performance and 
+        # to ensure that if this state is terminal, we will have recorded it in `self.terminal_racks`
 
         # check if we've seen it before and its a terminal state
         rack_tuple = tuple(map(tuple, rack))
@@ -192,12 +192,34 @@ class ComputerPlayer:
             return e
         
         self.non_terminal_racks[rack_tuple] = 1
-        
-        evals = []
-        for child in self.children(rack, player_id):
-            evals.append(self.minimax(child, (BLUE + RED) - player_id, depth - 1)) # recurse with the swapped player_id
 
-        return max(evals) if player_id == self.id else min(evals)
+        if player_id == self.id:
+            val = -INF
+            for child in self.children(rack, player_id):
+                val = max(
+                    val,
+                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta)
+                )
+                alpha = max(alpha, val)
+                if val >= beta:
+                    break
+            
+            return val
+        else:
+            val = INF
+            for child in self.children(rack, player_id):
+                mmx_res = self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta)
+                if mmx_res is None:
+                    raise Exception("minimax returned None")
+                val = min(
+                    val,
+                    mmx_res
+                )
+                beta = min(beta, val)
+                if val <= alpha:
+                    break
+            
+            return val
 
 
     def dispatch_job(self, rack_list, move, move_evals):
@@ -206,7 +228,15 @@ class ComputerPlayer:
 
         # we subtract 1 from the difficulty because this function is itself
         # called multiple times as the first level of search, by self.pick_move
-        move_evals.append(self.minimax(new_rack, (BLUE + RED) - self.id, self.difficulty_level - 1))
+        move_evals.append(
+            self.minimax(
+                new_rack,
+                (BLUE + RED) - self.id,
+                self.difficulty_level - 1,
+                -INF,
+                INF
+            )
+        )
     
 
     def pick_move(self, rack):
