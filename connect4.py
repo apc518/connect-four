@@ -131,6 +131,7 @@ if do_graphics:
                     self.canvas.create_image((c*SQUARE_SIZE+HALF_SQUARE,r*SQUARE_SIZE+HALF_SQUARE), image=self.overlay_image)
 
             # random player goes 1st
+            # self._set_player(random.randint(1,3))
             self._set_player(1)
                     
         # actually make a play--modifies the rack, and starts up the animation

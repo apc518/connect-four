@@ -57,7 +57,6 @@ class ComputerPlayer:
 
         # count total calls to self.eval()
         self.total_evals = 0
-        self.total_evals_lock = None
 
         # remember rack's we've evaluated that were terminal
         self.terminal_racks = {}
@@ -137,6 +136,10 @@ class ComputerPlayer:
         if abs(total) == INF:
             # print(f"board evaluated terminal: {rack}")
             self.terminal_racks[tuple(map(tuple, rack))] = total
+        else:
+            self.non_terminal_racks[tuple(map(tuple, rack))] = total
+
+        self.total_evals += 1
 
         return total
 
@@ -177,21 +180,30 @@ class ComputerPlayer:
         # TODO: move order beforehand, both for increased performance and 
         # to ensure that if this state is terminal, we will have recorded it in `self.terminal_racks`
 
-        # check if we've seen it before and its a terminal state
         rack_tuple = tuple(map(tuple, rack))
+
+        ### Leaf nodes (depth 0 and terminal states)
+        
+        # we've seen it before and its a terminal state
         if rack_tuple in self.terminal_racks:
             return self.terminal_racks[rack_tuple]
         
-        if depth == 0:
-            return self.eval(rack)
-        
-        # if we have not seen it before as a terminal state
+        # we've not seen it before as a terminal state
         if rack_tuple not in self.non_terminal_racks and find_win(rack_tuple) is not None:
-            e = self.eval(rack)
+            # this rack is a result of the opponents move
+            # so if it is a win, the opponent of the current player_id has won
+            e = -INF if player_id == self.id else INF
             self.terminal_racks[rack_tuple] = e
             return e
         
-        self.non_terminal_racks[rack_tuple] = 1
+        if depth == 0:
+            if rack_tuple in self.non_terminal_racks:
+                return self.non_terminal_racks[rack_tuple]
+            return self.eval(rack)
+            
+
+
+        ### Alpha-beta pruning
 
         if player_id == self.id:
             val = -INF
@@ -208,12 +220,9 @@ class ComputerPlayer:
         else:
             val = INF
             for child in self.children(rack, player_id):
-                mmx_res = self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta)
-                if mmx_res is None:
-                    raise Exception("minimax returned None")
                 val = min(
                     val,
-                    mmx_res
+                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta)
                 )
                 beta = min(beta, val)
                 if val <= alpha:
@@ -250,11 +259,19 @@ class ComputerPlayer:
         """
         rack_list = list(map(list, rack))
         move_evals = []
+
+        self.total_evals = 0
         
-        for move in range(7):
+        for move in range(len(rack)):
             self.dispatch_job(rack_list, move, move_evals)
 
         print("Evals: ", end="")
         print([x for x in move_evals])
+
+        for col_idx, col in enumerate(rack):
+            if col[len(col) - 1] != 0:
+                move_evals[col_idx] = -INF - 1 # never pick the move if its impossible
+
+        print(self.total_evals)
 
         return move_evals.index(max(move_evals))
