@@ -6,9 +6,6 @@ __author__ = "Andy Chamberlain" # replace my name with yours
 __license__ = "MIT"
 __date__ = "February 2022"
 
-from typing import List
-from multiprocessing import Lock, Process, Manager, Value
-
 from connect4 import find_win
 
 SUCCESS = 0
@@ -30,7 +27,7 @@ def deep_equals(r1, r2):
                 return False
     return True
 
-def increment_base3(digits : List[int]):
+def increment_base3(digits):
     """
     increments a number composed of digits in base 3 
     returns 0 for normal operation, or 1 for overflow
@@ -160,6 +157,7 @@ class ComputerPlayer:
         
         return ERROR
 
+
     def children(self, rack, player_id):
         """ returns all children of the rack given the player to move """
 
@@ -174,6 +172,7 @@ class ComputerPlayer:
                     break
         
         return children
+
 
     def minimax(self, rack, player_id, depth):
         """ returns the evaluation of the rack """
@@ -221,33 +220,11 @@ class ComputerPlayer:
         """
         rack_list = list(map(list, rack))
         move_evals = []
-
-        # multithreading stuff
-        # manager = Manager()
-        # move_evals = manager.list()
-        # self.terminal_racks = manager.dict()
-        # self.non_terminal_racks = manager.dict()
-
-        # self.total_evals = Value('i', 0)
-        # self.total_evals_lock = Lock()
-
-        # jobs = []
-        # for move in range(7):
-        #     j = Process(target=self.dispatch_job, args=(rack_list, move, move_evals))
-        #     jobs.append(j)
-        #     j.start()
-        
-        # for j in jobs:
-        #     j.join()
-
-        # print(self.total_evals.value)
         
         for move in range(7):
             self.dispatch_job(rack_list, move, move_evals)
 
-        # print(f"Rack before move: {rack_list}")
-
+        print("Evals: ", end="")
         print([x for x in move_evals])
-        # print(len(self.terminal_racks))
 
         return move_evals.index(max(move_evals))
