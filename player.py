@@ -1,23 +1,54 @@
 """
-multi-threaded minimax connect four player
+multi-threaded minimax connect four player with a-b pruning and optional transposition table
+
+since command line args are handled by connect4.py, which is not my code,
+options are simply defined as constants at the top of this file.
+
+In my testing, having the transposition table off and multithreading on yields
+the best performance. However, with multithreading off, using the transposition
+table does yield much better performance than having it off
+
+I expect that the mutex lock that Manager uses to syncronize the dictionary
+is what causes the slowdown when multithreading is enabled.
+
+As measured by me with a stopwatch on my phone, on my 6-core laptop:
+
+Level 9 response time to first move of column 4 (index 3)	
+	                parallel on	    parallel off
+trans table on	    32.5	        3.8
+trans table off	    2.5	            9.1
+
+Level 9 response time to second move (3rd ply) of column 4 (index 3)	
+	                parallel on	    parallel off
+trans table on	    46.3	        4.5
+trans table off	    2.4	            10.1
+
+These numbers are of course very crude, but they demonstrate
+four clearly separate categories of performance
+
 """
 
 __author__ = "Andy Chamberlain" # replace my name with yours
 __license__ = "MIT"
 __date__ = "February 2022"
 
-from unittest.util import _count_diff_all_purpose
-from connect4 import find_win
+from multiprocessing import Manager, Process
 
+### OPTIONS
+DO_MULTIPROCESSING = True
+USE_TRANSPOSITION_TABLE = False
+
+
+### CONSTANTS
 SUCCESS = 0
 ERROR = 1
 
 RED = 1
 BLUE = 2
 
-SMALL_INF = 2**16 # used as an exclusive lower bound for terminal evaluations
+SMALL_INF = 2**16 # used as a lower bound for terminal evaluations
 INF = 2**24 # used to evaluate winning quartets
-BIG_INF = 2**32 # used as an exclusive upper bound for terminal evaluations 
+BIG_INF = 2**32 # used as an upper bound for terminal evaluations 
 
 def deep_equals(r1, r2):
     if len(r1) != len(r2):
@@ -63,11 +94,11 @@ class ComputerPlayer:
         # count total calls to self.eval()
         self.total_evals = 0
 
-        # remember rack's we've evaluated that were terminal
-        self.terminal_racks = {}
-        self.non_terminal_racks = {}
-
-        self.trans_table = {} # transposition table
+        if DO_MULTIPROCESSING:
+            self.manager = Manager()
+            self.trans_table = self.manager.dict() # transposition table
+        else:
+            self.trans_table = {}
 
         # store quartet evaluations in a table to avoid having to compute them repeatedly
         self.quartet_table = {}
@@ -126,11 +157,11 @@ class ComputerPlayer:
 
         self.total_evals += 1
 
-        rack_tuple = tuple(map(tuple, rack))
+        if USE_TRANSPOSITION_TABLE:
+            rack_tuple = tuple(map(tuple, rack))
 
-        # use transposition table if possible
-        if rack_tuple in self.trans_table:
-            return self.trans_table[rack_tuple]
+            if rack_tuple in self.trans_table:
+                return self.trans_table[rack_tuple]
 
         total = 0
 
@@ -170,7 +201,8 @@ class ComputerPlayer:
                 )
                 total += self.quartet_table[back_slash_pieces]
 
-        self.trans_table[rack_tuple] = total
+        if USE_TRANSPOSITION_TABLE:
+            self.trans_table[rack_tuple] = total
 
         return total
 
@@ -204,6 +236,7 @@ class ComputerPlayer:
                     children.append((self.eval(child), child))
                     break
 
+        # move order best-first to increase effectiveness of a-b pruning
         children.sort()
         if player_id == self.id:
             children = children[::-1]
@@ -213,9 +246,6 @@ class ComputerPlayer:
 
     def minimax(self, rack, player_id, depth, alpha, beta):
         """ returns the evaluation of the rack """
-
-        # TODO: move order beforehand, both for increased performance and 
-        # to ensure that if this state is terminal, we will have recorded it in `self.terminal_racks`
 
         ### Leaf nodes (depth 0 and terminal states)
 
@@ -256,19 +286,37 @@ class ComputerPlayer:
 
 
     def dispatch_job(self, rack_list, move, move_evals):
+        """ 
+        makes the given move on the given rack and evaluates it 
+        from the opponents perspective (since it is then the opponents turn) 
+        """
+
         new_rack = [x[:] for x in rack_list]
         self.make_move(new_rack, move, self.id)
 
         # we subtract 1 from the difficulty because this function is itself
         # called multiple times as the first level of search, by self.pick_move
-        move_evals.append(
-            self.minimax(
-                new_rack,
-                (BLUE + RED) - self.id,
-                self.difficulty_level - 1,
-                -INF,
-                INF
-            )
+        move_evals[move] = self.minimax(
+            new_rack,
+            (BLUE + RED) - self.id,
+            self.difficulty_level - 1,
+            -INF,
+            INF
+        )
+
+    def dispatch_parallel_job(self, rack_list, move, move_eval_dict):
+        new_rack = [x[:] for x in rack_list]
+        if self.make_move(new_rack, move, self.id) == ERROR:
+            return
+
+        player = ComputerPlayer(self.id, difficulty_level=self.difficulty_level - 1)
+
+        move_eval_dict[move] = player.minimax(
+            new_rack,
+            (BLUE + RED) - self.id,
+            self.difficulty_level - 1,
+            -INF,
+            INF
         )
     
 
@@ -282,25 +330,32 @@ class ComputerPlayer:
         effect), and then chooses a random valid move.
         """
         rack_list = list(map(list, rack))
-        move_evals = []
+        move_evals_list = [-BIG_INF for _ in range(len(rack))]
 
         self.total_evals = 0
 
         self.cleanup_trans_table(rack_list)
-        
-        for move in range(len(rack)):
-            self.dispatch_job(rack_list, move, move_evals)
 
-        # print(f"Level {self.difficulty_level} Evals: ", end="")
-        # print([x for x in move_evals])
+        if DO_MULTIPROCESSING:
+            move_eval_dict = self.manager.dict()
+
+            jobs = []
+            for move in range(len(rack)):
+                j = Process(target=self.dispatch_job, args=(rack_list, move, move_eval_dict))
+                jobs.append(j)
+                j.start()
+
+            for j in jobs:
+                j.join()
+
+            for k in move_eval_dict:
+                move_evals_list[k] = move_eval_dict[k]
+        else:
+            for move in range(len(rack)):
+                self.dispatch_job(rack_list, move, move_evals_list)
 
         for col_idx, col in enumerate(rack):
             if col[-1] != 0:
-                move_evals[col_idx] = -BIG_INF # never pick the move if its impossible
+                move_evals_list[col_idx] = -BIG_INF # never pick the move if its impossible
 
-        # print(f"total evals: {self.total_evals}")
-        # print(f"transposition table size: {len(self.trans_table)}")
-
-        # input("next move...")
-
-        return move_evals.index(max(move_evals))
+        return move_evals_list.index(max(move_evals_list))
