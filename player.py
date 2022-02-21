@@ -11,8 +11,8 @@ table does yield much better performance than having it off.
 
 Time taken for level 9 to respond to an opening move of column 4 (index 3):
             parallel on	    parallel off
-table on    24.9            3.7
-table off   1.9             7.1
+table on    23.0            3.3
+table off   1.6             6.9
 
 I expect that the mutex lock that Manager uses to syncronize the dictionary
 is what causes the slowdown when multithreading is enabled. Since all the threads
@@ -36,7 +36,7 @@ __date__ = "February 2022"
 from multiprocessing import Manager, Process
 import time
 
-### OPTIONS
+## OPTIONS
 DO_MULTIPROCESSING = True
 USE_TRANSPOSITION_TABLE = False
 
