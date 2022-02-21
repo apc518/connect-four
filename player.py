@@ -9,7 +9,7 @@ In my testing, having the transposition table off and multithreading on yields
 the best performance. However, with multithreading off, using the transposition
 table does yield much better performance than having it off.
 
-Testing with level 9 responding as player 2 to an opening move of 1. column 4 (index 3):
+Time taken for level 9 to respond to an opening move of column 4 (index 3):
             parallel on	    parallel off
 table on    24.9            3.7
 table off   1.9             7.1
@@ -34,6 +34,7 @@ __license__ = "MIT"
 __date__ = "February 2022"
 
 from multiprocessing import Manager, Process
+import time
 
 ### OPTIONS
 DO_MULTIPROCESSING = True
@@ -315,6 +316,8 @@ class ComputerPlayer:
         drop a disc. The player current just pauses for half a second (for 
         effect), and then chooses a random valid move.
         """
+        start_time = time.time()
+
         rack_list = list(map(list, rack))
         move_evals_list = [-BIG_INF for _ in range(len(rack))]
 
@@ -352,4 +355,8 @@ class ComputerPlayer:
             if col[-1] != 0:
                 move_evals_list[col_idx] = -BIG_INF # never pick the move if its impossible
 
-        return move_evals_list.index(max(move_evals_list))
+        decision = move_evals_list.index(max(move_evals_list))
+
+        # print(f"Decided on move {decision+1} after {time.time() - start_time:04f}s")
+
+        return decision
