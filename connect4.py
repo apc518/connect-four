@@ -41,7 +41,7 @@ SQUARE_SIZE = 100
 FRAME_TIME = 25
 GRAVITY = 20
 DEFAULT_AI_LEVEL = 4
-DEFAULT_AI_FILE = "player"
+DEFAULT_AI_FILE = "connect4player"
 
 # AUTOMATIC CONSTANTS--DON'T MESS WITH THESE
 HALF_SQUARE = SQUARE_SIZE // 2
@@ -131,8 +131,7 @@ if do_graphics:
                     self.canvas.create_image((c*SQUARE_SIZE+HALF_SQUARE,r*SQUARE_SIZE+HALF_SQUARE), image=self.overlay_image)
 
             # random player goes 1st
-            # self._set_player(random.randint(1,3))
-            self._set_player(1)
+            self._set_player(random.randrange(1,3))
                     
         # actually make a play--modifies the rack, and starts up the animation
         def _drop_disc(self, location, player_num = None):
@@ -479,7 +478,7 @@ def find_win(rack, column = None):
     # if no column explicitly given, do them all recursively
     if column == None:
         for c in range(len(rack)):
-            win = find_win(rack, c)
+            win = find_win(c)
             if win: return win
         return None
 
