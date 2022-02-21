@@ -102,12 +102,12 @@ class ComputerPlayer:
         else:
             self.trans_table = {}
 
-        # store quartet evaluations in a table to avoid having to compute them repeatedly
-        self.quartet_table = {}
+        # store quartet evals at the base-3 number index of the quartet
+        self.quartet_table = [0] * 81
+
         # populate the quartet evaluation table
         # take care of the very first one before the loop
         q = [0,0,0,0]
-        self.quartet_table[tuple(q)] = 0
         piece_count_values = {1: 1, 2: 10, 3: 100, 4: INF}
         while increment_base3(q) == 0:
             opp_count = 0 # how many pieces in this quartet are the opponent's
@@ -121,14 +121,16 @@ class ComputerPlayer:
             
             sign = 1 if ai_count > opp_count else -1
 
+            idx = q[0] * 27 + q[1] * 9 + q[2] * 3 + q[3]
+
             # if at least one of each color is present, this quartet is worth 0
             if opp_count > 0 and ai_count > 0:
-                self.quartet_table[tuple(q)] = 0
+                self.quartet_table[idx] = 0
                 continue
             
             max_count = max(opp_count, ai_count)
 
-            self.quartet_table[tuple(q)] = sign * piece_count_values[max_count]
+            self.quartet_table[idx] = sign * piece_count_values[max_count]
 
 
     def possible_descendant(self, current_rack, other_rack):
@@ -170,38 +172,31 @@ class ComputerPlayer:
         # vertical quartets
         for col in rack:
             for i in range(0, len(col) - 3):
-                quartet = col[i:i+4]
-                total += self.quartet_table[tuple(quartet)]
+                idx = col[i] * 27 + col[i+1] * 9 + col[i+2] * 3 + col[i+3]
+                total += self.quartet_table[idx]
 
         # horizontal quartets
         for row_idx in range(0, len(rack[0])):
             for col_idx in range(0, len(rack) - 3):
-                pieces = (
-                    rack[col_idx][row_idx],
-                    rack[col_idx+1][row_idx],
-                    rack[col_idx+2][row_idx],
-                    rack[col_idx+3][row_idx]
-                )
-                total += self.quartet_table[pieces]
+                idx = rack[col_idx][row_idx] * 27 + rack[col_idx+1][row_idx] * 9 + \
+                    rack[col_idx+2][row_idx] * 3 + rack[col_idx+3][row_idx]
+
+                total += self.quartet_table[idx]
     
         # diagonal quartets
         for row_idx in range(0, len(rack[0]) - 3):
             for col_idx in range(0, len(rack) - 3):
-                forward_slash_pieces = (
-                    rack[col_idx][row_idx],
-                    rack[col_idx+1][row_idx+1],
-                    rack[col_idx+2][row_idx+2],
-                    rack[col_idx+3][row_idx+3]
-                )
-                total += self.quartet_table[forward_slash_pieces]
+                forward_slash_idx = rack[col_idx][row_idx] * 27 + rack[col_idx+1][row_idx+1] * 9 + \
+                    rack[col_idx+2][row_idx+2] * 3 + rack[col_idx+3][row_idx+3]
 
-                back_slash_pieces = (
-                    rack[col_idx][len(rack[0]) - row_idx - 1],
-                    rack[col_idx+1][len(rack[0]) - row_idx - 2],
-                    rack[col_idx+2][len(rack[0]) - row_idx - 3],
+                total += self.quartet_table[forward_slash_idx]
+
+                back_slash_idx = rack[col_idx][len(rack[0]) - row_idx - 1] * 27 + \
+                    rack[col_idx+1][len(rack[0]) - row_idx - 2] * 9 + \
+                    rack[col_idx+2][len(rack[0]) - row_idx - 3] * 3 + \
                     rack[col_idx+3][len(rack[0]) - row_idx - 4]
-                )
-                total += self.quartet_table[back_slash_pieces]
+
+                total += self.quartet_table[back_slash_idx]
 
         if USE_TRANSPOSITION_TABLE:
             self.trans_table[rack_tuple] = total
@@ -357,6 +352,6 @@ class ComputerPlayer:
 
         decision = move_evals_list.index(max(move_evals_list))
 
-        # print(f"Decided on move {decision+1} after {time.time() - start_time:04f}s")
+        # print(f"Decided on move {decision+1} after {(time.time() - start_time):.03f}s")
 
         return decision
