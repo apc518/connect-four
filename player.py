@@ -17,7 +17,40 @@ table off   1.6             6.9
 I expect that the mutex lock that Manager uses to syncronize the dictionary
 is what causes the slowdown when multithreading is enabled. Since all the threads
 are trying to access the table all the time, it results in more time being
-spent syncronizing them than on anything else. That is my guess at least.
+spent syncronizing them than on anything else.
+
+This is supported by the results of timing pick_move on an empty rack:
+
+I issued two `time` commands, first with the transposition table off, then on. In both
+cases, multithreading was on.
+
+```
+> time python test.py
+
+real    0m1.496s
+user    0m7.547s
+sys     0m0.050s
+> time py test.py
+
+real    0m22.677s
+user    0m41.559s
+sys     0m24.732s
+```
+
+test.py contained the following:
+
+```python
+from connect4player import ComputerPlayer, RED
+
+empty_rack = ((0,)*6,)*7
+player = ComputerPlayer(RED, difficulty_level=9)
+player.pick_move(empty_rack)
+```
+
+So, with the syncronized Manager.dict() transposition table, the proportion 
+of time spent in kernel mode by the OS was much higher, which is what we'd
+expect from waiting around for mutex locks.
+
 
 A final note on performance: the transposition table being enabled is probably
 faster than multithreading if you have less than 4 cpu cores. On my 6-core machine,
