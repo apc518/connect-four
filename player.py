@@ -1,34 +1,35 @@
 """
-multi-threaded minimax connect four player with a-b pruning and optional transposition table
+minimax connect four player with a-b pruning, move ordering, and
+optional transposition table and multithreading
 
 since command line args are handled by connect4.py, which is not my code,
 options are simply defined as constants at the top of this file.
 
 In my testing, having the transposition table off and multithreading on yields
 the best performance. However, with multithreading off, using the transposition
-table does yield much better performance than having it off
+table does yield much better performance than having it off.
+
+Testing with level 9 responding as player 2 to an opening move of 1. column 4 (index 3):
+            parallel on	    parallel off
+table on	24.9            3.7
+table off	1.9             7.1
 
 I expect that the mutex lock that Manager uses to syncronize the dictionary
-is what causes the slowdown when multithreading is enabled.
+is what causes the slowdown when multithreading is enabled. Since all the threads
+are trying to access the table all the time, it results in more time being
+spent syncronizing them than on anything else. That is my guess at least.
 
-As measured by me with a stopwatch on my phone, on my 6-core laptop:
-
-Level 9 response time to first move of column 4 (index 3)	
-	                parallel on	    parallel off
-trans table on	    32.5	        3.8
-trans table off	    2.5	            9.1
-
-Level 9 response time to second move (3rd ply) of column 4 (index 3)	
-	                parallel on	    parallel off
-trans table on	    46.3	        4.5
-trans table off	    2.4	            10.1
-
-These numbers are of course very crude, but they demonstrate
-four clearly separate categories of performance
+A final note on performance: the transposition table being enabled is probably
+faster than multithreading if you have less than 4 cpu cores. On my 6-core machine,
+the speedup when using multithreading is roughly 3-4x, and on a machine with 8+ cores
+the speedup would probably be a bit better. However, with fewer than 4 cores,
+especially a dual or single core machine, the speedup benefit from threading will be
+marginal at best. However, the transposition table will boost performance for
+single threaded processing by about 2x regardless of how many cores your machine has.
 
 """
 
-__author__ = "Andy Chamberlain" # replace my name with yours
+__author__ = "Andy Chamberlain"
 __license__ = "MIT"
 __date__ = "February 2022"
 
@@ -89,7 +90,7 @@ class ComputerPlayer:
         self.id = id
         self.difficulty_level = difficulty_level
 
-        print(f"new ComputerPlayer created with difficulty {self.difficulty_level} and id {self.id}")
+        # print(f"new ComputerPlayer created with difficulty {self.difficulty_level} and id {self.id}")
 
         # count total calls to self.eval()
         self.total_evals = 0
@@ -222,18 +223,24 @@ class ComputerPlayer:
 
 
     def get_children(self, rack, player_id):
-        """ returns all children of the given rack, assuming the given player is moving """
+        """ returns all children of the given rack, assuming the given player is moving 
+        items in the returned list are tuples of the form (rack, move, eval)
+        they are sorted by eval, according to whether the given player_id
+        is the opponent or is self.id
+        So, if player_id == self.id, we sort the children in descending order by eval
+        otherwise, sort ascending
+        """
 
         # also orders the moves according the heuristic eval
 
         children = []
         
-        for col_idx in range(0, len(rack)):
-            for row_idx in range(0, len(rack[0])):
-                if rack[col_idx][row_idx] == 0:
+        for move in range(len(rack)):
+            for row_idx in range(len(rack[0])):
+                if rack[move][row_idx] == 0:
                     child = [x[:] for x in rack]
-                    child[col_idx][row_idx] = player_id
-                    children.append((self.eval(child), child))
+                    child[move][row_idx] = player_id
+                    children.append((self.eval(child), move, child))
                     break
 
         # move order best-first to increase effectiveness of a-b pruning
@@ -241,19 +248,19 @@ class ComputerPlayer:
         if player_id == self.id:
             children = children[::-1]
 
-        return [child for _, child in children]
+        return [(child, move, val) for val, move, child in children]
 
 
-    def minimax(self, rack, player_id, depth, alpha, beta):
+    def minimax(self, rack, player_id, depth, alpha, beta, heuristic_val):
         """ returns the evaluation of the rack """
 
         ### Leaf nodes (depth 0 and terminal states)
 
-        heuristic_val = self.eval(rack)
+        # heuristic_val = self.eval(rack)
 
-        # if this rack is terminal or we are at max depth, return immediately
+        # if we are at max depth or this rack is terminal, return immediately
         # small_inf is a lower bound on terminal evaluations
-        if abs(heuristic_val) >= SMALL_INF or depth == 0:
+        if depth == 0 or abs(heuristic_val) >= SMALL_INF:
             return heuristic_val
 
 
@@ -261,10 +268,10 @@ class ComputerPlayer:
 
         if player_id == self.id:
             val = -INF
-            for child in self.get_children(rack, player_id):
+            for child, move, heur_val in self.get_children(rack, player_id):
                 val = max(
                     val,
-                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta)
+                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta, heur_val)
                 )
                 alpha = max(alpha, val)
                 if val >= beta:
@@ -273,10 +280,10 @@ class ComputerPlayer:
             return val
         else:
             val = INF
-            for child in self.get_children(rack, player_id):
+            for child, move, heur_val in self.get_children(rack, player_id):
                 val = min(
                     val,
-                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta)
+                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta, heur_val)
                 )
                 beta = min(beta, val)
                 if val <= alpha:
@@ -285,38 +292,23 @@ class ComputerPlayer:
             return val
 
 
-    def dispatch_job(self, rack_list, move, move_evals):
+    def eval_move(self, rack, move, move_evals, heur_val):
         """ 
-        makes the given move on the given rack and evaluates it 
-        from the opponents perspective (since it is then the opponents turn) 
-        """
+        updates the move_evals collection at the given move
+        with an evaluation of the given rack
 
-        new_rack = [x[:] for x in rack_list]
-        self.make_move(new_rack, move, self.id)
+        used exclusively for the very top level of the tree
+        """
 
         # we subtract 1 from the difficulty because this function is itself
         # called multiple times as the first level of search, by self.pick_move
         move_evals[move] = self.minimax(
-            new_rack,
+            rack,
             (BLUE + RED) - self.id,
             self.difficulty_level - 1,
             -INF,
-            INF
-        )
-
-    def dispatch_parallel_job(self, rack_list, move, move_eval_dict):
-        new_rack = [x[:] for x in rack_list]
-        if self.make_move(new_rack, move, self.id) == ERROR:
-            return
-
-        player = ComputerPlayer(self.id, difficulty_level=self.difficulty_level - 1)
-
-        move_eval_dict[move] = player.minimax(
-            new_rack,
-            (BLUE + RED) - self.id,
-            self.difficulty_level - 1,
-            -INF,
-            INF
+            INF,
+            heur_val
         )
     
 
@@ -340,8 +332,12 @@ class ComputerPlayer:
             move_eval_dict = self.manager.dict()
 
             jobs = []
-            for move in range(len(rack)):
-                j = Process(target=self.dispatch_job, args=(rack_list, move, move_eval_dict))
+            for child, move, heur_val in self.get_children(rack_list, self.id):
+                # if this move is an instant win, just return it immediately
+                if heur_val >= SMALL_INF:
+                    return move
+
+                j = Process(target=self.eval_move, args=(child, move, move_eval_dict, heur_val))
                 jobs.append(j)
                 j.start()
 
@@ -351,8 +347,12 @@ class ComputerPlayer:
             for k in move_eval_dict:
                 move_evals_list[k] = move_eval_dict[k]
         else:
-            for move in range(len(rack)):
-                self.dispatch_job(rack_list, move, move_evals_list)
+            for child, move, heur_val in self.get_children(rack_list, self.id):
+                # if this move is an instant win, just return it immediately
+                if heur_val >= SMALL_INF:
+                    return move
+                
+                self.eval_move(child, move, move_evals_list, heur_val)
 
         for col_idx, col in enumerate(rack):
             if col[-1] != 0:
