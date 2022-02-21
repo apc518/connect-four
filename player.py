@@ -11,8 +11,8 @@ table does yield much better performance than having it off.
 
 Testing with level 9 responding as player 2 to an opening move of 1. column 4 (index 3):
             parallel on	    parallel off
-table on	24.9            3.7
-table off	1.9             7.1
+table on    24.9            3.7
+table off   1.9             7.1
 
 I expect that the mutex lock that Manager uses to syncronize the dictionary
 is what causes the slowdown when multithreading is enabled. Since all the threads
@@ -231,8 +231,6 @@ class ComputerPlayer:
         otherwise, sort ascending
         """
 
-        # also orders the moves according the heuristic eval
-
         children = []
         
         for move in range(len(rack)):
@@ -243,7 +241,7 @@ class ComputerPlayer:
                     children.append((self.eval(child), move, child))
                     break
 
-        # move order best-first to increase effectiveness of a-b pruning
+        # move order best-first
         children.sort()
         if player_id == self.id:
             children = children[::-1]
@@ -253,10 +251,6 @@ class ComputerPlayer:
 
     def minimax(self, rack, player_id, depth, alpha, beta, heuristic_val):
         """ returns the evaluation of the rack """
-
-        ### Leaf nodes (depth 0 and terminal states)
-
-        # heuristic_val = self.eval(rack)
 
         # if we are at max depth or this rack is terminal, return immediately
         # small_inf is a lower bound on terminal evaluations
