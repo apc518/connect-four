@@ -192,7 +192,12 @@ class ComputerPlayer:
 
 
     def minimax(self, rack, player_id, depth, alpha, beta, heuristic_val):
-        """ returns the evaluation of the rack """
+        """
+        use the minimax algorithm to evaluate a position
+
+        returns: a number representing the heuristic evaluation based on
+        the player inputted
+        """
 
         # if we are at max depth or this rack is terminal, return immediately
         # small_inf is a lower bound on terminal evaluations
