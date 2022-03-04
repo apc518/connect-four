@@ -204,6 +204,8 @@ class ComputerPlayer:
             max_count = max(opp_count, ai_count)
 
             self.quartet_table[idx] = sign * piece_count_values[max_count]
+        
+        self.np_quartet_table = np.array(self.quartet_table)
 
 
     def possible_descendant(self, current_rack, other_rack):
@@ -240,7 +242,7 @@ class ComputerPlayer:
             if rack_tuple in self.trans_table:
                 return self.trans_table[rack_tuple]
 
-        total = eval_jit(np.array(rack), np.array(self.quartet_table))
+        total = eval_jit(rack, self.np_quartet_table)
 
         if USE_TRANSPOSITION_TABLE:
             self.trans_table[rack_tuple] = total
@@ -276,7 +278,8 @@ class ComputerPlayer:
         for move in range(len(rack)):
             for row_idx in range(len(rack[0])):
                 if rack[move][row_idx] == 0:
-                    child = [x[:] for x in rack]
+                    # child = [x[:] for x in rack]
+                    child = np.copy(rack)
                     child[move][row_idx] = player_id
                     children.append((self.eval(child), move, child))
                     break
@@ -422,6 +425,7 @@ class ComputerPlayer:
         start_time = time.time()
 
         rack_list = list(map(list, rack))
+        np_rack = np.array(rack_list)
         move_evals_list = [-BIG_INF for _ in range(len(rack))]
 
         self.total_evals = 0
@@ -433,7 +437,7 @@ class ComputerPlayer:
 
             # one job per possible move, as a tuple of the job itself and the move it processes
             jobs = []
-            for child, move, heur_val in self.get_children(rack_list, self.id):
+            for child, move, heur_val in self.get_children(np_rack, self.id):
                 # if this move is an instant win, just return it immediately
                 if heur_val >= SMALL_INF:
                     return move
@@ -456,7 +460,7 @@ class ComputerPlayer:
             for k in move_eval_dict:
                 move_evals_list[k] = move_eval_dict[k]
         else:
-            for child, move, heur_val in self.get_children(rack_list, self.id):
+            for child, move, heur_val in self.get_children(np_rack, self.id):
                 # if this move is an instant win, just return it immediately
                 if heur_val >= SMALL_INF:
                     return move
