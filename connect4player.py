@@ -4,7 +4,6 @@ optional multithreading and thread pruning
 
 since command line args are handled by connect4.py, which is not my code,
 options are simply defined as constants at the top of this file.
-
 """
 
 __author__ = "Andy Chamberlain"
@@ -18,7 +17,7 @@ import numpy as np
 from numba import njit
 
 ## OPTIONS
-DO_MULTIPROCESSING = False
+DO_MULTIPROCESSING = True
 
 
 ### CONSTANTS
@@ -46,7 +45,8 @@ def eval_jit(rack : np.ndarray, quartet_table: np.ndarray):
     # vertical quartets
     for col_idx in range(len(rack)):
         for i in range(len(rack[col_idx]) - 3):
-            idx = rack[col_idx][i] * 27 + rack[col_idx][i+1] * 9 + rack[col_idx][i+2] * 3 + rack[col_idx][i+3]
+            idx = rack[col_idx][i] * 27 + rack[col_idx][i+1] * 9 + \
+                rack[col_idx][i+2] * 3 + rack[col_idx][i+3]
             total += quartet_table[idx]
 
     # horizontal quartets
@@ -60,7 +60,8 @@ def eval_jit(rack : np.ndarray, quartet_table: np.ndarray):
     # diagonal quartets
     for row_idx in range(len(rack[0]) - 3):
         for col_idx in range(len(rack) - 3):
-            forward_slash_idx = rack[col_idx][row_idx] * 27 + rack[col_idx+1][row_idx+1] * 9 + \
+            forward_slash_idx = rack[col_idx][row_idx] * 27 + \
+                rack[col_idx+1][row_idx+1] * 9 + \
                 rack[col_idx+2][row_idx+2] * 3 + rack[col_idx+3][row_idx+3]
 
             total += quartet_table[forward_slash_idx]
@@ -84,8 +85,6 @@ class ComputerPlayer:
         """
         self.id = id
         self.difficulty_level = difficulty_level
-
-        # print(f"new ComputerPlayer created with difficulty {self.difficulty_level} and id {self.id}")
 
         # count total calls to self.eval()
         self.total_evals = 0
@@ -164,12 +163,13 @@ class ComputerPlayer:
 
 
     def get_children(self, rack, player_id):
-        """ returns all children of the given rack, assuming the given player is moving 
-        items in the returned list are tuples of the form (rack, move, eval)
+        """ returns all children of the given rack, assuming the given player 
+        is moving items in the returned list are tuples of the form
+        (rack, move, eval)
         they are sorted by eval, according to whether the given player_id
         is the opponent or is self.id
-        So, if player_id == self.id, we sort the children in descending order by eval
-        otherwise, sort ascending
+        So, if player_id == self.id, we sort the children in descending order
+        by eval otherwise, sort ascending
         """
 
         children = []
@@ -207,7 +207,8 @@ class ComputerPlayer:
             for child, move, heur_val in self.get_children(rack, player_id):
                 val = max(
                     val,
-                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta, heur_val)
+                    self.minimax(child, (BLUE+RED) - player_id, 
+                        depth - 1, alpha, beta, heur_val)
                 )
                 alpha = max(alpha, val)
                 if val >= beta:
@@ -219,7 +220,8 @@ class ComputerPlayer:
             for child, move, heur_val in self.get_children(rack, player_id):
                 val = min(
                     val,
-                    self.minimax(child, (BLUE+RED) - player_id, depth - 1, alpha, beta, heur_val)
+                    self.minimax(child, (BLUE+RED) - player_id,
+                        depth - 1, alpha, beta, heur_val)
                 )
                 beta = min(beta, val)
                 if val <= alpha:
@@ -250,25 +252,28 @@ class ComputerPlayer:
 
     def prune(self, jobs, move_dict):
         """
-        periodically check to see if the current move evaluations merit an immediate stop
+        periodically check to see if the current move evaluations merit an 
+        immediate stop
 
-        This function is blocking so it should always be called on its own thread/process.
+        This function is blocking so it should always be called on its own
+        thread/process.
 
-        this is not alpha beta pruning but it has the same function, that is, it will never
-        change the outcome of a search but it may make the search faster
+        this is not alpha beta pruning but it has the same function, that is,
+        it will never change the outcome of a search but it may make the
+        search faster
 
         the two conditions it checks for are: 
         
-        1. if any of the moves has been evaluated as a guaranteed win, that is, with a score
-        of greater than SMALL_INF
+        1. if any of the moves has been evaluated as a guaranteed win, that is,
+        with a score of greater than SMALL_INF
 
-        *2. if all possible moves except for one have been evaluated as guaranteed losses,
-        then we know to immediately stop searching and pick the move that has not yet
-        been marked a guaranteed loss
+        *2. if all possible moves except for one have been evaluated as
+        guaranteed losses, then we know to immediately stop searching and pick
+        the move that has not yet been marked a guaranteed loss
 
-        *note that a final position that hasnt been evaluated as a loss yet may turn out to
-        also be a guaranteed loss, but it will probably be the latest/deepest in the case,
-        so it's still probably the best move.
+        *note that a final position that hasnt been evaluated as a loss yet may
+        turn out to also be a guaranteed loss, but it will probably be the
+        latest/deepest in the case, so it's still probably the best move.
         """
 
         def kill_jobs():
@@ -299,7 +304,7 @@ class ComputerPlayer:
             
             kill_jobs()
             
-            # find the move whose job has not finished yet, set its value as 0 and return
+            # find the move whose job has not finished yet
             for j, move in jobs:
                 if move not in keys:
                     move_dict[move] = 0
@@ -331,27 +336,28 @@ class ComputerPlayer:
         if DO_MULTIPROCESSING:
             move_eval_dict = self.manager.dict()
 
-            # one job per possible move, as a tuple of the job itself and the move it processes
+            # one job per possible move
+            # as a tuple of the job itself and the move it processes
             jobs = []
             for child, move, heur_val in self.get_children(np_rack, self.id):
                 # if this move is an instant win, just return it immediately
                 if heur_val >= SMALL_INF:
                     return move
 
-                j = Process(target=self.eval_move, args=(child, move, move_eval_dict, heur_val))
+                j = Process(target=self.eval_move,
+                    args=(child, move, move_eval_dict, heur_val))
                 jobs.append((j, move))
                 j.start()
 
-            # avoid unnecessary computation on forced moves or shallow guaranteed wins
-            if self.id == RED:
-                pruner = Process(target=self.prune, args=(jobs, move_eval_dict))
-                pruner.start()
+            # avoid unnecessary computation on forced moves
+            # or shallow guaranteed wins
+            pruner = Process(target=self.prune, args=(jobs, move_eval_dict))
+            pruner.start()
 
             for j, _ in jobs:
                 j.join()
 
-            if self.id == RED:
-                pruner.kill()
+            pruner.kill()
 
             for k in move_eval_dict:
                 move_evals_list[k] = move_eval_dict[k]
@@ -365,7 +371,8 @@ class ComputerPlayer:
 
         for col_idx, col in enumerate(rack):
             if col[-1] != 0:
-                move_evals_list[col_idx] = -BIG_INF # never pick the move if its impossible
+                # never pick the move if its impossible
+                move_evals_list[col_idx] = -BIG_INF
 
         decision = move_evals_list.index(max(move_evals_list))
 
