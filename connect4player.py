@@ -1,64 +1,9 @@
 """
 minimax connect four player with a-b pruning, move ordering, and
-optional transposition table and multithreading
+optional multithreading and thread pruning
 
 since command line args are handled by connect4.py, which is not my code,
 options are simply defined as constants at the top of this file.
-
-In my testing, having the transposition table off and multithreading on yields
-the best performance. However, with multithreading off, using the transposition
-table does yield much better performance than having it off.
-
-Time taken for level 9 to respond to an opening move of column 4 (index 3):
-            parallel on	    parallel off
-table on    23.0            3.3
-table off   1.6             6.9
-
-I expect that the mutex lock that Manager uses to syncronize the dictionary
-is what causes the slowdown when multithreading is enabled. Since all the threads
-are trying to access the table all the time, it results in more time being
-spent syncronizing them than on anything else.
-
-This is supported by the results of timing pick_move on an empty rack:
-
-I issued two `time` commands, first with the transposition table off, then on. In both
-cases, multithreading was on.
-
-```
-> time python test.py
-
-real    0m1.496s
-user    0m7.547s
-sys     0m0.050s
-> time py test.py
-
-real    0m22.677s
-user    0m41.559s
-sys     0m24.732s
-```
-
-test.py contained the following:
-
-```python
-from connect4player import ComputerPlayer, RED
-
-empty_rack = ((0,)*6,)*7
-player = ComputerPlayer(RED, difficulty_level=9)
-player.pick_move(empty_rack)
-```
-
-So, with the syncronized Manager.dict() transposition table, the proportion 
-of time spent in kernel mode by the OS was much higher, which is what we'd
-expect from waiting around for mutex locks.
-
-
-A final note on performance: the transposition table being enabled is probably
-faster than multithreading if you have less than 4 cpu cores. On my 6-core machine,
-the speedup when using multithreading is roughly 3-4x, and on a machine with 8+ cores
-the speedup would probably be a bit better. However, with fewer than 4 cores,
-especially a dual or single core machine, the speedup benefit from threading will be
-marginal at best. However, the transposition table will boost performance for
-single threaded processing by about 2x regardless of how many cores your machine has.
 
 """
 
@@ -73,8 +18,7 @@ import numpy as np
 from numba import njit
 
 ## OPTIONS
-DO_MULTIPROCESSING = True
-USE_TRANSPOSITION_TABLE = False
+DO_MULTIPROCESSING = False
 
 
 ### CONSTANTS
@@ -88,38 +32,15 @@ SMALL_INF = 2**16 # used as a lower bound for terminal evaluations
 INF = 2**24 # used to evaluate winning quartets
 BIG_INF = 2**32 # used as an upper bound for terminal evaluations 
 
-def deep_equals(r1, r2):
-    if len(r1) != len(r2):
-        return False
-    if len(r1[0]) != len(r2[0]):
-        return False
-    for i in range(0, len(r1)):
-        for k in range(0, len(r1[0])):
-            if r1[i][k] != r2[i][k]:
-                return False
-    return True
-
-def increment_base3(digits):
-    """
-    increments a number composed of digits in base 3 
-    returns 0 for normal operation, or 1 for overflow
-    """
-    for i in range(0, len(digits)):
-        idx = len(digits) - i - 1
-        if digits[idx] == 2:
-            if idx == 0:
-                return ERROR # number has reached its max
-            continue
-        else:
-            digits[idx] += 1
-            for k in range(idx+1, len(digits)):
-                digits[k] = 0
-            return SUCCESS
-
 
 # rack and quartet_table should be numpy arrays
 @njit
 def eval_jit(rack : np.ndarray, quartet_table: np.ndarray):
+    """
+    go through all vertical, horizontal, and diagonal
+    quartets and add their values
+    """
+
     total = 0
 
     # vertical quartets
@@ -171,18 +92,19 @@ class ComputerPlayer:
 
         if DO_MULTIPROCESSING:
             self.manager = Manager()
-            self.trans_table = self.manager.dict() # transposition table
-        else:
-            self.trans_table = {}
 
         # store quartet evals at the base-3 number index of the quartet
         self.quartet_table = [0] * 81
 
         # populate the quartet evaluation table
-        # take care of the very first one before the loop
-        q = [0,0,0,0]
+
+        tv = [0,1,2] # possible tile values
+        all_quartets = [[x,y,w,z] for x in tv for y in tv for w in tv for z in tv]
+
         piece_count_values = {1: 1, 2: 10, 3: 100, 4: INF}
-        while increment_base3(q) == 0:
+
+        # populate quartet_table
+        for q in all_quartets[1:]: # skip the first one since its already 0
             opp_count = 0 # how many pieces in this quartet are the opponent's
             ai_count = 0 # how many pieces in this quarter are the ai's
 
@@ -219,33 +141,10 @@ class ComputerPlayer:
         return True
 
 
-    def cleanup_trans_table(self, current_rack):
-        """ removes positions from the transposition table that we know will never be used again in this game """
-
-        keys_to_remove = []
-        for key in self.trans_table:
-            if not self.possible_descendant(current_rack, key):
-                keys_to_remove.append(key)
-        
-        for k in keys_to_remove:
-            del self.trans_table[k]
-
-
     def eval(self, rack):
-        """ go through all vertical, horizontal, and diagonal quartets and add their values """
-
         self.total_evals += 1
 
-        if USE_TRANSPOSITION_TABLE:
-            rack_tuple = tuple(map(tuple, rack))
-
-            if rack_tuple in self.trans_table:
-                return self.trans_table[rack_tuple]
-
         total = eval_jit(rack, self.np_quartet_table)
-
-        if USE_TRANSPOSITION_TABLE:
-            self.trans_table[rack_tuple] = total
 
         return total
 
@@ -418,9 +317,8 @@ class ComputerPlayer:
         Pick the move to make. It will be passed a rack with the current board
         layout, column-major. A 0 indicates no token is there, and 1 or 2
         indicate discs from the two players. Column 0 is on the left, and row 0 
-        is on the bottom. It must return an int indicating in which column to 
-        drop a disc. The player current just pauses for half a second (for 
-        effect), and then chooses a random valid move.
+        is on the bottom. It must return an integer indicating in which column to 
+        drop a disc.
         """
         start_time = time.time()
 
@@ -429,8 +327,6 @@ class ComputerPlayer:
         move_evals_list = [-BIG_INF for _ in range(len(rack))]
 
         self.total_evals = 0
-
-        self.cleanup_trans_table(rack_list)
 
         if DO_MULTIPROCESSING:
             move_eval_dict = self.manager.dict()
@@ -473,7 +369,7 @@ class ComputerPlayer:
 
         decision = move_evals_list.index(max(move_evals_list))
 
-        print(f"Decided on move {decision+1} after {(time.time() - start_time):.03f}s")
+        # print(f"Decided on move {decision+1} after {(time.time() - start_time):.03f}s")
         # print(f"{move_evals_list=}")
 
         return decision
