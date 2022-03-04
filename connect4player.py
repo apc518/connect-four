@@ -193,7 +193,7 @@ class ComputerPlayer:
 
     def minimax(self, rack, player_id, depth, alpha, beta, heuristic_val):
         """
-        use the minimax algorithm to evaluate a position
+        use the minimax algorithm to evaluate a position with alpha beta pruning
 
         returns: a number representing the heuristic evaluation based on
         the player inputted
