@@ -333,7 +333,71 @@ class ComputerPlayer:
             INF,
             heur_val
         )
-    
+
+
+    def prune(self, jobs, move_dict):
+        """
+        periodically check to see if the current move evaluations merit an immediate stop
+
+        This function is blocking so it should always be called on its own thread/process.
+
+        this is not alpha beta pruning but it has the same function, that is, it will never
+        change the outcome of a search but it may make the search faster
+
+        the two conditions it checks for are: 
+        
+        1. if any of the moves has been evaluated as a guaranteed win, that is, with a score
+        of greater than SMALL_INF
+
+        *2. if all possible moves except for one have been evaluated as guaranteed losses,
+        then we know to immediately stop searching and pick the move that has not yet
+        been marked a guaranteed loss
+
+        *note that a final position that hasnt been evaluated as a loss yet may turn out to
+        also be a guaranteed loss, but it will probably be the latest/deepest in the case,
+        so it's still probably the best move.
+        """
+
+        def kill_jobs():
+            for j, _ in jobs:
+                j.kill()
+
+        def try_prune():
+            # check if move_dict is in a state such that we can immediately finish
+            items = list(move_dict.items())
+            keys = [k for k, v in items]
+            for k, v in items:
+                if v > SMALL_INF:
+                    kill_jobs()
+                    return
+
+
+            ### now check for all losses but one move is missing
+
+            # ensure there is exactly one job that hasnt finished
+            if len(items) != len(jobs) - 1:
+                return
+
+            # ensure all jobs finished so far returned a guaranteed loss
+            for k, v in items:
+                # if we find a non loss, we cant prune anything, so just return
+                if v > -SMALL_INF:
+                    return
+            
+            kill_jobs()
+            
+            # find the move whose job has not finished yet, set its value as 0 and return
+            for j, move in jobs:
+                if move not in keys:
+                    move_dict[move] = 0
+                    return
+
+
+        while True:
+            time.sleep(0.1) # sleep for 0.1 seconds
+            try_prune()
+
+
 
     def pick_move(self, rack):
         """
@@ -356,6 +420,7 @@ class ComputerPlayer:
         if DO_MULTIPROCESSING:
             move_eval_dict = self.manager.dict()
 
+            # one job per possible move, as a tuple of the job itself and the move it processes
             jobs = []
             for child, move, heur_val in self.get_children(rack_list, self.id):
                 # if this move is an instant win, just return it immediately
@@ -363,11 +428,19 @@ class ComputerPlayer:
                     return move
 
                 j = Process(target=self.eval_move, args=(child, move, move_eval_dict, heur_val))
-                jobs.append(j)
+                jobs.append((j, move))
                 j.start()
 
-            for j in jobs:
+            # avoid unnecessary computation on forced moves or shallow guaranteed wins
+            if self.id == RED:
+                pruner = Process(target=self.prune, args=(jobs, move_eval_dict))
+                pruner.start()
+
+            for j, _ in jobs:
                 j.join()
+
+            if self.id == RED:
+                pruner.kill()
 
             for k in move_eval_dict:
                 move_evals_list[k] = move_eval_dict[k]
@@ -386,5 +459,6 @@ class ComputerPlayer:
         decision = move_evals_list.index(max(move_evals_list))
 
         # print(f"Decided on move {decision+1} after {(time.time() - start_time):.03f}s")
+        # print(f"{move_evals_list=}")
 
         return decision
