@@ -69,6 +69,9 @@ __date__ = "February 2022"
 from multiprocessing import Manager, Process
 import time
 
+import numpy as np
+from numba import njit
+
 ## OPTIONS
 DO_MULTIPROCESSING = True
 USE_TRANSPOSITION_TABLE = False
@@ -112,6 +115,43 @@ def increment_base3(digits):
             for k in range(idx+1, len(digits)):
                 digits[k] = 0
             return SUCCESS
+
+
+# rack and quartet_table should be numpy arrays
+@njit
+def eval_jit(rack : np.ndarray, quartet_table: np.ndarray):
+    total = 0
+
+    # vertical quartets
+    for col_idx in range(len(rack)):
+        for i in range(len(rack[col_idx]) - 3):
+            idx = rack[col_idx][i] * 27 + rack[col_idx][i+1] * 9 + rack[col_idx][i+2] * 3 + rack[col_idx][i+3]
+            total += quartet_table[idx]
+
+    # horizontal quartets
+    for row_idx in range(len(rack[0])):
+        for col_idx in range(len(rack) - 3):
+            idx = rack[col_idx][row_idx] * 27 + rack[col_idx+1][row_idx] * 9 + \
+                rack[col_idx+2][row_idx] * 3 + rack[col_idx+3][row_idx]
+
+            total += quartet_table[idx]
+
+    # diagonal quartets
+    for row_idx in range(len(rack[0]) - 3):
+        for col_idx in range(len(rack) - 3):
+            forward_slash_idx = rack[col_idx][row_idx] * 27 + rack[col_idx+1][row_idx+1] * 9 + \
+                rack[col_idx+2][row_idx+2] * 3 + rack[col_idx+3][row_idx+3]
+
+            total += quartet_table[forward_slash_idx]
+
+            back_slash_idx = rack[col_idx][len(rack[0]) - row_idx - 1] * 27 + \
+                rack[col_idx+1][len(rack[0]) - row_idx - 2] * 9 + \
+                rack[col_idx+2][len(rack[0]) - row_idx - 3] * 3 + \
+                rack[col_idx+3][len(rack[0]) - row_idx - 4]
+
+            total += quartet_table[back_slash_idx]
+    
+    return total
 
 
 class ComputerPlayer:
@@ -200,36 +240,7 @@ class ComputerPlayer:
             if rack_tuple in self.trans_table:
                 return self.trans_table[rack_tuple]
 
-        total = 0
-
-        # vertical quartets
-        for col in rack:
-            for i in range(0, len(col) - 3):
-                idx = col[i] * 27 + col[i+1] * 9 + col[i+2] * 3 + col[i+3]
-                total += self.quartet_table[idx]
-
-        # horizontal quartets
-        for row_idx in range(0, len(rack[0])):
-            for col_idx in range(0, len(rack) - 3):
-                idx = rack[col_idx][row_idx] * 27 + rack[col_idx+1][row_idx] * 9 + \
-                    rack[col_idx+2][row_idx] * 3 + rack[col_idx+3][row_idx]
-
-                total += self.quartet_table[idx]
-    
-        # diagonal quartets
-        for row_idx in range(0, len(rack[0]) - 3):
-            for col_idx in range(0, len(rack) - 3):
-                forward_slash_idx = rack[col_idx][row_idx] * 27 + rack[col_idx+1][row_idx+1] * 9 + \
-                    rack[col_idx+2][row_idx+2] * 3 + rack[col_idx+3][row_idx+3]
-
-                total += self.quartet_table[forward_slash_idx]
-
-                back_slash_idx = rack[col_idx][len(rack[0]) - row_idx - 1] * 27 + \
-                    rack[col_idx+1][len(rack[0]) - row_idx - 2] * 9 + \
-                    rack[col_idx+2][len(rack[0]) - row_idx - 3] * 3 + \
-                    rack[col_idx+3][len(rack[0]) - row_idx - 4]
-
-                total += self.quartet_table[back_slash_idx]
+        total = eval_jit(np.array(rack), np.array(self.quartet_table))
 
         if USE_TRANSPOSITION_TABLE:
             self.trans_table[rack_tuple] = total
@@ -458,7 +469,7 @@ class ComputerPlayer:
 
         decision = move_evals_list.index(max(move_evals_list))
 
-        # print(f"Decided on move {decision+1} after {(time.time() - start_time):.03f}s")
+        print(f"Decided on move {decision+1} after {(time.time() - start_time):.03f}s")
         # print(f"{move_evals_list=}")
 
         return decision
