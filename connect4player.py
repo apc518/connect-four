@@ -32,7 +32,6 @@ INF = 2**24 # used to evaluate winning quartets
 BIG_INF = 2**32 # used as an upper bound for terminal evaluations 
 
 
-# rack and quartet_table should be numpy arrays
 @njit
 def eval_jit(rack : np.ndarray, quartet_table: np.ndarray):
     """
@@ -118,8 +117,8 @@ class ComputerPlayer:
             idx = q[0] * 27 + q[1] * 9 + q[2] * 3 + q[3]
 
             # if at least one of each color is present, this quartet is worth 0
+            # table is filled with 0s by default so no action is needed
             if opp_count > 0 and ai_count > 0:
-                self.quartet_table[idx] = 0
                 continue
             
             max_count = max(opp_count, ai_count)
@@ -177,7 +176,6 @@ class ComputerPlayer:
         for move in range(len(rack)):
             for row_idx in range(len(rack[0])):
                 if rack[move][row_idx] == 0:
-                    # child = [x[:] for x in rack]
                     child = np.copy(rack)
                     child[move][row_idx] = player_id
                     children.append((self.eval(child), move, child))
@@ -255,13 +253,20 @@ class ComputerPlayer:
         )
 
 
-    def prune(self, jobs, move_dict):
+    def prune_threads(self, jobs, move_dict):
         """
-        periodically check to see if the current move evaluations merit an 
-        immediate stop
+        Periodically check to see if the current move evaluations merit an 
+        immediate stop.
 
         This function is blocking so it should always be called on its own
         thread/process.
+
+        ### Arguments
+        jobs -- list of tuples (Process job, int move)
+        move_dict -- a Manager dict, of the form { int move : int evaluation }
+
+
+        ### Details
 
         this is not alpha beta pruning but it has the same function, that is,
         it will never change the outcome of a search but it may make the
@@ -297,7 +302,7 @@ class ComputerPlayer:
 
             ### now check for all losses but one move is missing
 
-            # ensure there is exactly one job that hasnt finished
+            # ensure that exactly one job hasnt finished
             if len(items) != len(jobs) - 1:
                 return
 
@@ -307,6 +312,9 @@ class ComputerPlayer:
                 if v > -SMALL_INF:
                     return
             
+            # at this point, the guard clauses above not returning confirms
+            # that we have indeed evaluated all but one possible move, and
+            # that all so far are guaranteed losses, so we can finish early
             kill_jobs()
             
             # find the move whose job has not finished yet
@@ -356,7 +364,7 @@ class ComputerPlayer:
 
             # avoid unnecessary computation on forced moves
             # or shallow guaranteed wins
-            pruner = Process(target=self.prune, args=(jobs, move_eval_dict))
+            pruner = Process(target=self.prune_threads, args=(jobs, move_eval_dict))
             pruner.start()
 
             for j, _ in jobs:
