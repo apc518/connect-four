@@ -85,9 +85,6 @@ class ComputerPlayer:
         self.id = id
         self.difficulty_level = difficulty_level
 
-        # count total calls to self.eval()
-        self.total_evals = 0
-
         if DO_MULTIPROCESSING:
             self.manager = Manager()
 
@@ -127,6 +124,9 @@ class ComputerPlayer:
         
         self.np_quartet_table = np.array(self.quartet_table)
 
+        # call eval once so numba compiles it
+        eval_jit(np.array([[0]*6]*7), self.np_quartet_table)
+
 
     def possible_descendant(self, current_rack, other_rack):
         """ returns whether other_rack is a possible descendant of current_rack """
@@ -140,8 +140,6 @@ class ComputerPlayer:
 
 
     def eval(self, rack):
-        self.total_evals += 1
-
         total = eval_jit(rack, self.np_quartet_table)
 
         return total
@@ -320,6 +318,7 @@ class ComputerPlayer:
             # find the move whose job has not finished yet
             for j, move in jobs:
                 if move not in keys:
+                    # all other moves are -INF, so 0 will be chosen over them
                     move_dict[move] = 0
                     return
 
