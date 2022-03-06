@@ -35,8 +35,15 @@ BIG_INF = 2**32 # used as an upper bound for terminal evaluations
 @njit
 def eval_jit(rack : np.ndarray, quartet_table: np.ndarray):
     """
-    go through all vertical, horizontal, and diagonal
-    quartets and add their values
+    returns a heuristic evaluation of the rack
+
+    quartet_table must be a linearly indexable collection containing
+    numerical items, and have a length of >= 81. Preferably, a length-81 numpy
+    array of ints.
+
+    goes through all vertical, horizontal, and diagonal quartets, adding up
+    the evaluations of each quartet (group of four connected slots), as
+    specified by quartet_table
     """
 
     total = 0
@@ -88,18 +95,31 @@ class ComputerPlayer:
         if DO_MULTIPROCESSING:
             self.manager = Manager()
 
-        # store quartet evals at the base-3 number index of the quartet
-        self.quartet_table = [0] * 81
-
-        # populate the quartet evaluation table
-
+        # generate all possible quartets
         tv = [0,1,2] # possible tile values
         all_quartets = [[x,y,w,z] for x in tv for y in tv for w in tv for z in tv]
 
         piece_count_values = {1: 1, 2: 10, 3: 100, 4: INF}
 
+        # quartet_table will store the evaluation of each quartet at the index
+        # corresponding to the base-3 number of the quartet.
+        # so, for a quartet [1, 2, 0, 1], its evaluation would be stored at
+        # index 1 * 3**3 + 2 * 3**2 + 0 * 3**1 + 1 * 3**0, aka 46 in decimal
+        self.quartet_table = [0] * 81
+
         # populate quartet_table
         for q in all_quartets[1:]: # skip the first one since its already 0
+            """
+            Each quartet is evaluated according to the following rules:
+
+            Point value is positive if it favors ComputerPlayer, negative otherwise.
+            Contains at least one disc of each color: 0
+            Contains 4 discs of the same color: ±INF (since one player has won).
+            Contains 3 discs of the same color (and 1 empty): ±100.
+            Contains 2 discs of the same color (and 2 empties): ±10.
+            Contains 1 disc (and 3 empties): ±1.
+            """
+            
             opp_count = 0 # how many pieces in this quartet are the opponent's
             ai_count = 0 # how many pieces in this quarter are the ai's
 
@@ -128,21 +148,8 @@ class ComputerPlayer:
         eval_jit(np.array([[0]*6]*7), self.np_quartet_table)
 
 
-    def possible_descendant(self, current_rack, other_rack):
-        """ returns whether other_rack is a possible descendant of current_rack """
-
-        for col_idx, col in enumerate(other_rack):
-            for row_idx, val in enumerate(col):
-                current_val = current_rack[col_idx][row_idx]
-                if current_val != 0 and val != current_val:
-                    return False
-        return True
-
-
-    def eval(self, rack):
-        total = eval_jit(rack, self.np_quartet_table)
-
-        return total
+    def eval_heur(self, rack):
+        return eval_jit(rack, self.np_quartet_table)
 
 
     def make_move(self, rack, move, player_id):
