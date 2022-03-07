@@ -119,7 +119,7 @@ class ComputerPlayer:
             Contains 2 discs of the same color (and 2 empties): ±10.
             Contains 1 disc (and 3 empties): ±1.
             """
-            
+
             opp_count = 0 # how many pieces in this quartet are the opponent's
             ai_count = 0 # how many pieces in this quarter are the ai's
 
@@ -183,7 +183,7 @@ class ComputerPlayer:
                 if rack[move][row_idx] == 0:
                     child = np.copy(rack)
                     child[move][row_idx] = player_id
-                    children.append((self.eval(child), move, child))
+                    children.append((self.eval_heur(child), move, child))
                     break
 
         # move order best-first
